@@ -5,7 +5,15 @@ import csv
 import datetime
 import json
 import socket
+import rospy
+from time import sleep
+#from std_msgs.msg import String
+#from waterlinked_a50_ros_driver.msg import DVL //might have to change "waterlinked_a50 ros_driver" to my new fork bc the repo is archived. 
+#from waterlinked_a50_ros_driver.msg import DVLBeam
+import select
 
+#workflow: work on reading through the parser script first. Look for important functions and classes. 
+#Go to publisher next and do the same. Work on making sure that all the imports and libs work. 
 class _CSVWriter:
     def __init__(self, csv_file, message_type):
         self.csv_file = csv_file
@@ -50,22 +58,24 @@ class _CSVWriter:
 
     def flush(self):
         self.csv_file.flush()
-#CSV class writer ends right here. 
+
+""" 
+looks like all of this is needed for parser. it sets environment for the csv file. from here, we'll take the csv file
+and use it to publish the data. 
+
+"""
+
+
+
 def _start_dvl_socket(dvl_ip):
     dvl_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     dvl_socket.connect((dvl_ip, 16171))
     return dvl_socket
-
-def _type(message_type):
-    if message_type == "velocity":
-        return "velocity"
-    return "position_local"
-
+# used to start DVL by starting a TCP connection to the DVL. 
 def _format_timestamp(timestamp, time_format):
     return datetime.datetime.strftime(
         datetime.datetime.fromtimestamp(timestamp),
         time_format)
-
 def _format_timestamps(message_type, message, time_format):
     message["log_time"] = _format_timestamp(
         message["log_time"] / 1e6,
@@ -82,7 +92,7 @@ def _format_timestamps(message_type, message, time_format):
             pass
     else:
         message["ts"] = _format_timestamp(message["ts"], time_format)
-
+#used to format the timestamps of the messages.
 def _handle(message_type, message, time_format, csv_writer):
     if not message:
         return
@@ -95,84 +105,12 @@ def _handle(message_type, message, time_format, csv_writer):
         return
     report["log_time"] = int(datetime.datetime.utcnow().timestamp() * 1e6)
     if time_format:
-        _format_timestamps(message_type, report, time_format)
+        _format_timestamps(message_type, report, time_format) # takes previous function and formats the timestamps.
     print(json.dumps(report))
     if csv_writer is not None:
         csv_writer.writerow(report)
         csv_writer.flush()
-
-def _process_messages(dvl_socket, message_type, time_format, csv_writer = None):
-    buffer_size = 4096
-    message = ""
-    while True:
-        buffer = dvl_socket.recv(buffer_size).decode()
-        if not buffer:
-            continue
-        message_parts = buffer.split("\r\n")
-        if len(message_parts) == 1:
-            message += message_parts[0]
-            continue
-        for message_part in message_parts[:-1]:
-            message = message + message_part
-            _handle(message_type, message, time_format, csv_writer)
-            message = ""
-        if message_parts[-1]:
-            message = message_parts[-1]
-
-def arguments_parser():
-    parser = argparse.ArgumentParser(
-        description = "Extract data from DVL TCP stream")
-    parser.add_argument(
-        "message_type",
-        choices = [ "velocity", "dead_reckoning" ],
-        help = "Type of DVL message to handle")
-    parser.add_argument(
-        "-i",
-        "--ip",
-        default = "192.168.2.95",
-        help = "IP address of DVL")
-    parser.add_argument(
-        "-t",
-        "--time_format",
-        help = (
-            "A string describing a date and time format using the directives " +
-            "in the table at the following link.\n\n " +
-            "https://docs.python.org/3/library/datetime.html#strftime-strptime-behavior" +
-            "\nFor example, %%Y-%%m-%%dT%%H-%%M-%%S.%%fZ would be the string " +
-            "for obtaining the format of the ISO 8601 standard. If provided, " +
-            "the format string will be applied to all timestamps in the " +
-            "message"))
-    parser.add_argument(
-        "-c",
-        "--csv",
-        default = "",
-        help = (
-            "Path to CSV file. If a non-empty path is provided, the " +
-            "extracted positions will be saved to a CSV file at that path"))
-    return parser
-
-def main():
-    arguments = arguments_parser().parse_args()
-    csv_file_path = arguments.csv
-    message_type = _type(arguments.message_type)
-    time_format = arguments.time_format
-    if csv_file_path:
-        with open(csv_file_path, "w") as csv_file:
-            _process_messages(
-                _start_dvl_socket(arguments.ip),
-                message_type,
-                time_format,
-                _CSVWriter(csv_file, arguments.message_type))
-    else:
-        _process_messages(
-            _start_dvl_socket(arguments.ip),
-            message_type,
-            time_format)
-
-if __name__ == "__main__":
-    main()
-
-
+#used to handle the messages.
 
 oldJson = ""
 
